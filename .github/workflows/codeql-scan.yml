@@ -248,8 +248,6 @@ jobs:
 
           baseline_findings = analyze_sarif_files([baseline_path])
           current_findings = analyze_sarif_files(current_files)
-          baseline_counts = severity_counts(baseline_findings)
-          current_counts = severity_counts(current_findings)
 
           baseline_remaining = Counter(
               finding["identity"] for finding in baseline_findings
@@ -283,28 +281,12 @@ jobs:
               summary.write(
                   f"Pre-existing findings: **{len(preexisting_findings)}**\n\n"
               )
+              summary.write(f"Baseline findings: **{baseline_total}**\n\n")
+              summary.write(
+                  f"Total count difference: "
+                  f"**{format_delta(current_total - baseline_total)}**\n\n"
+              )
               summary.write(f"Resolved baseline findings: **{resolved_findings}**\n\n")
-
-              summary.write("### Baseline and Current Counts by Severity\n\n")
-              summary.write(
-                  "| Severity | Baseline | Pre-existing | New | Current | Difference |\n"
-              )
-              summary.write(
-                  "| --- | ---: | ---: | ---: | ---: | ---: |\n"
-              )
-              for severity in SEVERITIES:
-                  summary.write(
-                      f"| {SEVERITY_MARKERS[severity]} {severity} | "
-                      f"{baseline_counts[severity]} | {preexisting_counts[severity]} | "
-                      f"{new_counts[severity]} | {current_counts[severity]} | "
-                      f"{format_delta(current_counts[severity] - baseline_counts[severity])} |\n"
-                  )
-              summary.write(
-                  f"| **Total** | **{baseline_total}** | "
-                  f"**{len(preexisting_findings)}** | **{len(new_findings)}** | "
-                  f"**{current_total}** | "
-                  f"**{format_delta(current_total - baseline_total)}** |\n\n"
-              )
 
               write_severity_table(
                   summary, "Pre-existing Findings by Severity", preexisting_counts
