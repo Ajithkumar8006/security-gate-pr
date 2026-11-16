@@ -1,0 +1,320 @@
+* {
+    -fx-font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+}
+
+.app-root {
+    -fx-background-color: #f5f7f5;
+}
+
+.sidebar {
+    -fx-background-color: #183a35;
+}
+
+.brand {
+    -fx-alignment: center-left;
+    -fx-padding: 2 0 16 6;
+}
+
+.brand-mark {
+    -fx-background-color: #c5f06b;
+    -fx-background-radius: 8;
+    -fx-min-width: 32;
+    -fx-min-height: 32;
+    -fx-alignment: center;
+    -fx-text-fill: #183a35;
+    -fx-font-size: 19px;
+    -fx-font-weight: 800;
+}
+
+.brand-name {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 19px;
+    -fx-font-weight: 700;
+}
+
+.nav-caption {
+    -fx-text-fill: #8ca7a0;
+    -fx-font-size: 10px;
+    -fx-font-weight: 700;
+    -fx-padding: 8 0 0 9;
+}
+
+.nav-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-text-fill: #d3e0dc;
+    -fx-font-size: 13px;
+    -fx-padding: 11 12;
+    -fx-cursor: hand;
+}
+
+.nav-button:hover {
+    -fx-background-color: #244b44;
+}
+
+.nav-button-active {
+    -fx-background-color: #c5f06b;
+    -fx-text-fill: #183a35;
+    -fx-font-weight: 700;
+}
+
+.nav-button-active:hover {
+    -fx-background-color: #d3f68b;
+}
+
+.sidebar .separator .line {
+    -fx-border-color: #31554e;
+    -fx-border-width: 1 0 0 0;
+}
+
+.user-profile {
+    -fx-padding: 12 4 2 4;
+    -fx-border-color: #31554e transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.avatar {
+    -fx-background-color: #d8a788;
+    -fx-background-radius: 50;
+    -fx-min-width: 34;
+    -fx-min-height: 34;
+    -fx-alignment: center;
+    -fx-text-fill: #3a2820;
+    -fx-font-weight: 700;
+    -fx-font-size: 11px;
+}
+
+.user-name {
+    -fx-text-fill: #f5f8f6;
+    -fx-font-size: 12px;
+    -fx-font-weight: 600;
+}
+
+.user-role {
+    -fx-text-fill: #9db4ad;
+    -fx-font-size: 10px;
+}
+
+.content-scroll,
+.content-scroll > .viewport {
+    -fx-background-color: #f5f7f5;
+}
+
+.content-scroll > .viewport > .main-content {
+    -fx-background-color: #f5f7f5;
+}
+
+.main-content {
+    -fx-background-color: #f5f7f5;
+}
+
+.date-label {
+    -fx-text-fill: #6b7772;
+    -fx-font-size: 12px;
+}
+
+.icon-button,
+.secondary-button,
+.primary-button,
+.row-action,
+.row-delete {
+    -fx-cursor: hand;
+}
+
+.icon-button {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e3;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-text-fill: #485650;
+    -fx-font-weight: 700;
+    -fx-min-width: 34;
+    -fx-min-height: 34;
+}
+
+.page-title {
+    -fx-text-fill: #202b27;
+    -fx-font-size: 28px;
+    -fx-font-weight: 700;
+}
+
+.page-subtitle,
+.section-subtitle {
+    -fx-text-fill: #77827d;
+    -fx-font-size: 12px;
+}
+
+.metric-card {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 7;
+    -fx-border-color: #e5eae6;
+    -fx-border-radius: 7;
+    -fx-padding: 17 15;
+    -fx-min-height: 112;
+}
+
+.metric-title {
+    -fx-text-fill: #75817b;
+    -fx-font-size: 9px;
+    -fx-font-weight: 700;
+}
+
+.metric-value {
+    -fx-text-fill: #202b27;
+    -fx-font-size: 23px;
+    -fx-font-weight: 700;
+}
+
+.metric-caption {
+    -fx-text-fill: #8a948f;
+    -fx-font-size: 10px;
+}
+
+.metric-icon {
+    -fx-background-radius: 7;
+    -fx-min-width: 29;
+    -fx-min-height: 29;
+    -fx-alignment: center;
+    -fx-font-size: 12px;
+    -fx-font-weight: 700;
+}
+
+.metric-blue { -fx-background-color: #e6f0fb; -fx-text-fill: #4774aa; }
+.metric-green { -fx-background-color: #e6f4eb; -fx-text-fill: #3c865c; }
+.metric-amber { -fx-background-color: #fff1db; -fx-text-fill: #b57b26; }
+.metric-violet { -fx-background-color: #f0eafa; -fx-text-fill: #7759a2; }
+
+.section-title {
+    -fx-text-fill: #26332e;
+    -fx-font-size: 17px;
+    -fx-font-weight: 700;
+}
+
+.secondary-button,
+.primary-button {
+    -fx-background-radius: 6;
+    -fx-padding: 9 13;
+    -fx-font-size: 11px;
+    -fx-font-weight: 600;
+}
+
+.secondary-button {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dce4de;
+    -fx-border-radius: 6;
+    -fx-text-fill: #46534d;
+}
+
+.secondary-button:hover { -fx-background-color: #f0f3f0; }
+
+.primary-button {
+    -fx-background-color: #234b42;
+    -fx-text-fill: #ffffff;
+}
+
+.primary-button:hover { -fx-background-color: #306052; }
+
+.search-field,
+.filter-combo {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dfe6e1;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-font-size: 11px;
+    -fx-text-fill: #34413a;
+    -fx-min-height: 36;
+}
+
+.search-field { -fx-padding: 0 12; }
+.search-field:focused, .filter-combo:focused { -fx-border-color: #78a99a; }
+.filter-combo { -fx-pref-width: 155; }
+
+.table-frame {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 7;
+    -fx-border-color: #e2e8e3;
+    -fx-border-radius: 7;
+    -fx-padding: 0 12 4 12;
+    -fx-min-height: 300;
+}
+
+.product-table {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-table-cell-border-color: transparent;
+}
+
+.product-table .column-header-background {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #edf0ed transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.product-table .column-header,
+.product-table .filler {
+    -fx-background-color: transparent;
+    -fx-size: 43px;
+    -fx-border-color: transparent;
+}
+
+.product-table .column-header .label {
+    -fx-text-fill: #849089;
+    -fx-font-size: 9px;
+    -fx-font-weight: 700;
+    -fx-alignment: center-left;
+}
+
+.product-table .table-row-cell {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #eff2ef transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-cell-size: 65px;
+}
+
+.product-table .table-row-cell:hover { -fx-background-color: #f8faf8; }
+.product-table .table-row-cell:selected { -fx-background-color: #edf5ef; }
+.product-table .table-cell { -fx-text-fill: #47544d; -fx-font-size: 11px; -fx-alignment: center-left; -fx-padding: 5 7; }
+.product-table .placeholder .label { -fx-text-fill: #89938e; -fx-font-size: 12px; }
+
+.product-initials {
+    -fx-background-color: #edf2e8;
+    -fx-background-radius: 6;
+    -fx-min-width: 36;
+    -fx-min-height: 36;
+    -fx-alignment: center;
+    -fx-text-fill: #49624a;
+    -fx-font-size: 10px;
+    -fx-font-weight: 700;
+}
+
+.product-cell-text { -fx-alignment: center-left; }
+.product-name { -fx-text-fill: #303b35; -fx-font-size: 11px; -fx-font-weight: 600; }
+.product-sku { -fx-text-fill: #8b9690; -fx-font-size: 9px; }
+
+.stock-badge {
+    -fx-background-radius: 4;
+    -fx-padding: 5 8;
+    -fx-font-size: 9px;
+    -fx-font-weight: 600;
+}
+
+.stock-good { -fx-background-color: #e8f4eb; -fx-text-fill: #38764e; }
+.stock-low { -fx-background-color: #fff1db; -fx-text-fill: #a76e1e; }
+.stock-out { -fx-background-color: #fbe9e6; -fx-text-fill: #af5146; }
+.row-action, .row-delete { -fx-background-radius: 4; -fx-padding: 5 7; -fx-font-size: 9px; }
+.row-action { -fx-background-color: #edf2ee; -fx-text-fill: #46574d; }
+.row-action:hover { -fx-background-color: #dfe9e1; }
+.row-delete { -fx-background-color: transparent; -fx-text-fill: #9a6b63; -fx-font-size: 13px; }
+.row-delete:hover { -fx-background-color: #fbe9e6; }
+
+.table-footer {
+    -fx-text-fill: #89938d;
+    -fx-font-size: 10px;
+    -fx-padding: 2 0 0 0;
+}
+
+.form-label { -fx-text-fill: #4c5a53; -fx-font-size: 11px; -fx-font-weight: 600; }
+.dialog-pane { -fx-background-color: #ffffff; }
+.dialog-pane .header-panel { -fx-background-color: #f5f7f5; }
+.dialog-pane .header-panel .label { -fx-text-fill: #25332d; -fx-font-size: 16px; -fx-font-weight: 700; }
+.dialog-pane .text-field, .dialog-pane .combo-box { -fx-min-height: 32; -fx-font-size: 11px; }
