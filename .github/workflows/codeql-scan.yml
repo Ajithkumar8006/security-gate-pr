@@ -1,0 +1,117 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - gate-pr
+    paths:
+      - ".github/workflows/codeql-scan.yml"
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze Java
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+          build-mode: autobuild
+
+      - name: Perform CodeQL Analysis
+        id: analyze
+        uses: github/codeql-action/analyze@v3
+
+      - name: Summarize findings by severity
+        if: ${{ steps.analyze.outcome == 'success' }}
+        env:
+          SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          sarif_files = sorted(Path(os.environ["SARIF_DIR"]).rglob("*.sarif"))
+          if not sarif_files:
+              raise SystemExit("CodeQL did not produce any SARIF files.")
+
+          counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+          level_fallbacks = {
+              "error": "High",
+              "warning": "Medium",
+              "note": "Low",
+              "none": "Low",
+          }
+
+          for sarif_file in sarif_files:
+              with sarif_file.open(encoding="utf-8") as file:
+                  sarif = json.load(file)
+
+              for run in sarif.get("runs", []):
+                  rules = run.get("tool", {}).get("driver", {}).get("rules", [])
+                  rules_by_id = {rule.get("id"): rule for rule in rules}
+
+                  for result in run.get("results", []):
+                      rule = rules_by_id.get(result.get("ruleId"), {})
+                      if not rule and isinstance(result.get("ruleIndex"), int):
+                          index = result["ruleIndex"]
+                          if 0 <= index < len(rules):
+                              rule = rules[index]
+
+                      result_properties = result.get("properties", {})
+                      rule_properties = rule.get("properties", {})
+                      score = result_properties.get("security-severity")
+                      if score is None:
+                          score = rule_properties.get("security-severity")
+
+                      if score is not None:
+                          score = float(score)
+                          if score >= 9:
+                              severity = "Critical"
+                          elif score >= 7:
+                              severity = "High"
+                          elif score >= 4:
+                              severity = "Medium"
+                          else:
+                              severity = "Low"
+                      else:
+                          level = result.get("level")
+                          if level is None:
+                              level = rule.get("defaultConfiguration", {}).get("level", "none")
+                          try:
+                              severity = level_fallbacks[level.lower()]
+                          except (AttributeError, KeyError):
+                              raise ValueError(f"Unsupported SARIF severity level: {level!r}")
+
+                      counts[severity] += 1
+
+          total = sum(counts.values())
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## CodeQL findings by severity\n\n")
+              summary.write("| Severity | Count |\n| --- | ---: |\n")
+              for severity in ("Critical", "High", "Medium", "Low"):
+                  summary.write(f"| {severity} | {counts[severity]} |\n")
+              summary.write(f"| **Total** | **{total}** |\n\n")
+              summary.write(
+                  "Security findings use CodeQL's `security-severity` score "
+                  "(Critical ≥ 9, High ≥ 7, Medium ≥ 4, otherwise Low). "
+                  "Findings without that score use the SARIF level "
+                  "(error → High, warning → Medium, note/none → Low).\n"
+              )
+          PY
