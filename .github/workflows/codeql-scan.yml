@@ -45,81 +45,170 @@ jobs:
           path: ${{ steps.analyze.outputs.sarif-output }}
           retention-days: 1
 
-      - name: Summarize findings by severity
+      - name: Compare findings with approved baseline
         if: ${{ steps.analyze.outcome == 'success' }}
         env:
           SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
+          import hashlib
           import json
+          import math
           import os
+          from collections import Counter
           from pathlib import Path
 
-          sarif_files = sorted(Path(os.environ["SARIF_DIR"]).rglob("*.sarif"))
-          if not sarif_files:
-              raise SystemExit("CodeQL did not produce any SARIF files.")
-
-          counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
-          level_fallbacks = {
+          SEVERITIES = ("Critical", "High", "Medium", "Low")
+          LEVEL_FALLBACKS = {
               "error": "High",
               "warning": "Medium",
               "note": "Low",
               "none": "Low",
           }
 
-          for sarif_file in sarif_files:
-              with sarif_file.open(encoding="utf-8") as file:
+          def load_sarif(path):
+              with path.open(encoding="utf-8") as file:
                   sarif = json.load(file)
+              if sarif.get("version") != "2.1.0" or not isinstance(sarif.get("runs"), list):
+                  raise ValueError(f"{path} is not a SARIF 2.1.0 file.")
+              return sarif
 
-              for run in sarif.get("runs", []):
-                  rules = run.get("tool", {}).get("driver", {}).get("rules", [])
-                  rules_by_id = {rule.get("id"): rule for rule in rules}
+          def find_rule(result, rules_by_id, rules):
+              rule_id = result.get("ruleId")
+              if rule_id is None:
+                  rule_id = result.get("rule", {}).get("id")
+              if rule_id is not None:
+                  return rule_id, rules_by_id.get(rule_id, {})
 
-                  for result in run.get("results", []):
-                      rule = rules_by_id.get(result.get("ruleId"), {})
-                      if not rule and isinstance(result.get("ruleIndex"), int):
-                          index = result["ruleIndex"]
-                          if 0 <= index < len(rules):
-                              rule = rules[index]
+              rule_index = result.get("ruleIndex")
+              if isinstance(rule_index, int) and 0 <= rule_index < len(rules):
+                  rule = rules[rule_index]
+                  return rule.get("id"), rule
+              raise ValueError("A SARIF result does not identify its rule.")
 
-                      result_properties = result.get("properties", {})
-                      rule_properties = rule.get("properties", {})
-                      score = result_properties.get("security-severity")
-                      if score is None:
-                          score = rule_properties.get("security-severity")
+          def finding_severity(result, rule):
+              score = result.get("properties", {}).get("security-severity")
+              if score is None:
+                  score = rule.get("properties", {}).get("security-severity")
+              if score is not None:
+                  try:
+                      score = float(score)
+                  except (TypeError, ValueError) as error:
+                      raise ValueError(f"Invalid security-severity score: {score!r}") from error
+                  if not math.isfinite(score) or not 0 <= score <= 10:
+                      raise ValueError(f"Invalid security-severity score: {score!r}")
+                  if score >= 9:
+                      return "Critical"
+                  if score >= 7:
+                      return "High"
+                  if score >= 4:
+                      return "Medium"
+                  return "Low"
 
-                      if score is not None:
-                          score = float(score)
-                          if score >= 9:
-                              severity = "Critical"
-                          elif score >= 7:
-                              severity = "High"
-                          elif score >= 4:
-                              severity = "Medium"
-                          else:
-                              severity = "Low"
-                      else:
-                          level = result.get("level")
-                          if level is None:
-                              level = rule.get("defaultConfiguration", {}).get("level", "none")
-                          try:
-                              severity = level_fallbacks[level.lower()]
-                          except (AttributeError, KeyError):
-                              raise ValueError(f"Unsupported SARIF severity level: {level!r}")
+              level = result.get("level")
+              if level is None:
+                  level = rule.get("defaultConfiguration", {}).get("level", "none")
+              if not isinstance(level, str) or level.lower() not in LEVEL_FALLBACKS:
+                  raise ValueError(f"Unsupported SARIF severity level: {level!r}")
+              return LEVEL_FALLBACKS[level.lower()]
 
-                      counts[severity] += 1
+          def finding_identity(result, rule_id):
+              fingerprints = result.get("partialFingerprints", {})
+              fingerprint = (
+                  fingerprints.get("primaryLocationLineHash")
+                  or fingerprints.get("primaryLocationStartColumnFingerprint")
+              )
+              if fingerprint is not None:
+                  identity = [rule_id, "fingerprint", fingerprint]
+              else:
+                  locations = result.get("locations", [])
+                  if locations:
+                      physical = locations[0].get("physicalLocation", {})
+                      artifact = physical.get("artifactLocation", {})
+                      region = physical.get("region", {})
+                      location = [
+                          artifact.get("uri"),
+                          region.get("startLine"),
+                          region.get("startColumn"),
+                      ]
+                  else:
+                      location = None
+                  identity = [
+                      rule_id,
+                      location,
+                      result.get("message", {}).get("text", ""),
+                  ]
+              encoded = json.dumps(
+                  identity, sort_keys=True, ensure_ascii=True
+              ).encode("utf-8")
+              return hashlib.sha256(encoded).hexdigest()
 
-          total = sum(counts.values())
+          def analyze_sarif_files(paths):
+              counts = Counter()
+              identities = Counter()
+              for path in paths:
+                  sarif = load_sarif(path)
+                  if not sarif["runs"]:
+                      raise ValueError(f"{path} contains no SARIF runs.")
+                  for run in sarif["runs"]:
+                      tool = run.get("tool", {})
+                      components = [tool.get("driver", {})] + tool.get("extensions", [])
+                      rules = []
+                      rules_by_id = {}
+                      for component in components:
+                          component_rules = component.get("rules", [])
+                          rules.extend(component_rules)
+                          for rule in component_rules:
+                              if rule.get("id") is not None:
+                                  rules_by_id.setdefault(rule["id"], rule)
+                      for result in run.get("results", []):
+                          rule_id, rule = find_rule(result, rules_by_id, rules)
+                          severity = finding_severity(result, rule)
+                          counts[severity] += 1
+                          identities[finding_identity(result, rule_id)] += 1
+              return counts, identities
+
+          def format_delta(delta):
+              return f"+{delta}" if delta > 0 else str(delta)
+
+          baseline_path = Path("reports/java.sarif")
+          current_dir = Path(os.environ["SARIF_DIR"])
+          if not baseline_path.is_file():
+              raise SystemExit(f"Approved SARIF baseline not found: {baseline_path}")
+          current_files = sorted(current_dir.rglob("*.sarif"))
+          if not current_files:
+              raise SystemExit(f"No current SARIF files found in {current_dir}")
+
+          baseline_counts, baseline_findings = analyze_sarif_files([baseline_path])
+          current_counts, current_findings = analyze_sarif_files(current_files)
+          baseline_total = sum(baseline_counts.values())
+          current_total = sum(current_counts.values())
+          new_findings = sum((current_findings - baseline_findings).values())
+          resolved_findings = sum((baseline_findings - current_findings).values())
+
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write("## CodeQL findings by severity\n\n")
-              summary.write("| Severity | Count |\n| --- | ---: |\n")
-              for severity in ("Critical", "High", "Medium", "Low"):
-                  summary.write(f"| {severity} | {counts[severity]} |\n")
-              summary.write(f"| **Total** | **{total}** |\n\n")
+              summary.write("## CodeQL findings compared with approved baseline\n\n")
+              summary.write("| Severity | Baseline | Current scan | Difference |\n")
+              summary.write("| --- | ---: | ---: | ---: |\n")
+              for severity in SEVERITIES:
+                  baseline_count = baseline_counts[severity]
+                  current_count = current_counts[severity]
+                  summary.write(
+                      f"| {severity} | {baseline_count} | {current_count} | "
+                      f"{format_delta(current_count - baseline_count)} |\n"
+                  )
               summary.write(
-                  "Security findings use CodeQL's `security-severity` score "
+                  f"| **Total** | **{baseline_total}** | **{current_total}** | "
+                  f"**{format_delta(current_total - baseline_total)}** |\n\n"
+              )
+              summary.write(
+                  f"New findings: **{new_findings}**; resolved findings: "
+                  f"**{resolved_findings}**. Difference is current scan minus baseline.\n\n"
+              )
+              summary.write(
+                  "Severity uses CodeQL's `security-severity` score "
                   "(Critical ≥ 9, High ≥ 7, Medium ≥ 4, otherwise Low). "
-                  "Findings without that score use the SARIF level "
+                  "Findings without that score use SARIF level "
                   "(error → High, warning → Medium, note/none → Low).\n"
               )
           PY

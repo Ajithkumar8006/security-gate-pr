@@ -21,3 +21,9 @@ mvn javafx:run
 - Export the product catalog as a CSV file.
 
 Products are kept in memory for the current session; restarting the app restores the sample catalog.
+
+## CodeQL SARIF baseline
+
+The approved CodeQL SARIF baseline is stored at `reports/java.sarif`. The `gate-pr` workflow compares each scan with this file and reports baseline counts, current counts, severity differences, and new or resolved findings in the Actions summary. Update the baseline only after reviewing and approving a new SARIF scan.
+
+The workflow currently runs only when `.github/workflows/codeql-scan.yml` changes on `gate-pr`.
