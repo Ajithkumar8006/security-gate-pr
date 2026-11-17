@@ -6,6 +6,13 @@ on:
       - gate-pr
     paths:
       - ".github/workflows/codeql-scan.yml"
+  workflow_dispatch:
+    inputs:
+      test_gate:
+        description: "Inject synthetic SARIF; the run is expected to fail the gate."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -44,6 +51,36 @@ jobs:
           name: codeql-sarif
           path: ${{ steps.analyze.outputs.sarif-output }}
           retention-days: 1
+
+      - name: Test gate with synthetic SARIF findings
+        if: ${{ steps.analyze.outcome == 'success' && github.event_name == 'workflow_dispatch' && inputs.test_gate }}
+        env:
+          SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
+        run: |
+          cat > "$SARIF_DIR/synthetic-test.sarif" <<'JSON'
+          {
+            "version": "2.1.0",
+            "runs": [{
+              "tool": {
+                "driver": {
+                  "name": "Synthetic test",
+                  "rules": [
+                    {"id": "test/critical", "properties": {"security-severity": "9.5"}},
+                    {"id": "test/high", "properties": {"security-severity": "7.5"}},
+                    {"id": "test/medium", "properties": {"security-severity": "5.0"}},
+                    {"id": "test/low", "properties": {"security-severity": "2.0"}}
+                  ]
+                }
+              },
+              "results": [
+                {"ruleId": "test/critical", "partialFingerprints": {"primaryLocationLineHash": "synthetic-critical"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "synthetic/Example.java"}, "region": {"startLine": 1}}}], "message": {"text": "Synthetic test finding"}},
+                {"ruleId": "test/high", "partialFingerprints": {"primaryLocationLineHash": "synthetic-high"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "synthetic/Example.java"}, "region": {"startLine": 2}}}], "message": {"text": "Synthetic test finding"}},
+                {"ruleId": "test/medium", "partialFingerprints": {"primaryLocationLineHash": "synthetic-medium"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "synthetic/Example.java"}, "region": {"startLine": 3}}}], "message": {"text": "Synthetic test finding"}},
+                {"ruleId": "test/low", "partialFingerprints": {"primaryLocationLineHash": "synthetic-low"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "synthetic/Example.java"}, "region": {"startLine": 4}}}], "message": {"text": "Synthetic test finding"}}
+              ]
+            }]
+          }
+          JSON
 
       - name: Compare findings with approved baseline
         if: ${{ steps.analyze.outcome == 'success' }}
