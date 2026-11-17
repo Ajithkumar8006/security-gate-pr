@@ -24,6 +24,6 @@ Products are kept in memory for the current session; restarting the app restores
 
 ## CodeQL SARIF baseline
 
-The approved CodeQL SARIF baseline is stored at `reports/java.sarif`. The `gate-pr` workflow compares each scan with this file and reports baseline, pre-existing, new, and resolved findings in the Actions summary. New Critical, High, or Medium findings fail the workflow; Low and Informational findings do not. Update the baseline only after reviewing and approving a new SARIF scan.
+The approved CodeQL SARIF baseline is stored at `reports/java.sarif`. The CodeQL workflow runs when a PR targeting `main` is opened or updated, and compares the scan with the baseline from the PR's target branch. It reports baseline, pre-existing, new, and resolved findings in the Actions summary and creates or updates a summary comment on same-repository PRs. New Critical, High, or Medium findings fail the workflow; Low and Informational findings do not. Update the baseline only after reviewing and approving a new SARIF scan.
 
-The workflow currently runs only when `.github/workflows/codeql-scan.yml` changes on `gate-pr`.
+Fork PRs use a read-only token and therefore do not receive the PR comment; their report remains available in the Actions run summary.
