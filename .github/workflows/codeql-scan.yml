@@ -87,7 +87,7 @@ jobs:
         env:
           SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
         run: |
-          python3 - <<'PY' > "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
           import html
           import hashlib
           import json
@@ -308,57 +308,57 @@ jobs:
           )
           gate_status = "PASS" if blocking_new == 0 else "FAIL"
 
-          summary = sys.stdout
-          summary.write("## CodeQL SAST Scan Summary\n\n")
-          summary.write(
-              "Baseline file: `reports/java.sarif` (approved CodeQL SARIF baseline).\n\n"
-          )
-          summary.write(f"Total findings in filtered results: **{current_total}**\n\n")
-          summary.write(f"New findings: **{len(new_findings)}**\n\n")
-          summary.write(
-              f"Pre-existing findings: **{len(preexisting_findings)}**\n\n"
-          )
-          summary.write(f"Baseline findings: **{baseline_total}**\n\n")
-          summary.write(
-              f"Total count difference: "
-              f"**{format_delta(current_total - baseline_total)}**\n\n"
-          )
-          summary.write(f"Resolved baseline findings: **{resolved_findings}**\n\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## CodeQL SAST Scan Summary\n\n")
+              summary.write(
+                  "Baseline file: `reports/java.sarif` (approved CodeQL SARIF baseline).\n\n"
+              )
+              summary.write(f"Total findings in filtered results: **{current_total}**\n\n")
+              summary.write(f"New findings: **{len(new_findings)}**\n\n")
+              summary.write(
+                  f"Pre-existing findings: **{len(preexisting_findings)}**\n\n"
+              )
+              summary.write(f"Baseline findings: **{baseline_total}**\n\n")
+              summary.write(
+                  f"Total count difference: "
+                  f"**{format_delta(current_total - baseline_total)}**\n\n"
+              )
+              summary.write(f"Resolved baseline findings: **{resolved_findings}**\n\n")
 
-          write_severity_table(
-              summary, "Pre-existing Findings by Severity", preexisting_counts
-          )
-          write_finding_details(
-              summary, "Pre-existing Findings", preexisting_findings
-          )
-          write_severity_table(summary, "New Findings by Severity", new_counts)
-          write_finding_details(summary, "New Findings", new_findings)
+              write_severity_table(
+                  summary, "Pre-existing Findings by Severity", preexisting_counts
+              )
+              write_finding_details(
+                  summary, "Pre-existing Findings", preexisting_findings
+              )
+              write_severity_table(summary, "New Findings by Severity", new_counts)
+              write_finding_details(summary, "New Findings", new_findings)
 
-          summary.write("### New Findings (Gate Evaluation)\n\n")
-          summary.write(f"Security gate: **{gate_status}**\n\n")
-          summary.write(
-              "Gate policy: New Critical, High, or Medium findings block; "
-              "Low and Informational findings do not.\n\n"
-          )
-          if blocking_new:
+              summary.write("### New Findings (Gate Evaluation)\n\n")
+              summary.write(f"Security gate: **{gate_status}**\n\n")
               summary.write(
-                  f"Gate result: **{blocking_new}** new Critical, High, or "
-                  "Medium finding(s) violate the policy; the workflow will fail.\n\n"
+                  "Gate policy: New Critical, High, or Medium findings block; "
+                  "Low and Informational findings do not.\n\n"
               )
-          elif new_findings:
+              if blocking_new:
+                  summary.write(
+                      f"Gate result: **{blocking_new}** new Critical, High, or "
+                      "Medium finding(s) violate the policy; the workflow will fail.\n\n"
+                  )
+              elif new_findings:
+                  summary.write(
+                      "Gate result: new findings are Low severity and do not block.\n\n"
+                  )
+              else:
+                  summary.write(
+                      "Gate result: no new findings compared with the approved baseline.\n\n"
+                  )
               summary.write(
-                  "Gate result: new findings are Low severity and do not block.\n\n"
+                  "\nSeverity uses CodeQL's `security-severity` score "
+                  "(Critical ≥ 9, High ≥ 7, Medium ≥ 4, otherwise Low). "
+                  "Findings without that score use SARIF level "
+                  "(error → High, warning → Medium, note/none → Low).\n"
               )
-          else:
-              summary.write(
-                  "Gate result: no new findings compared with the approved baseline.\n\n"
-              )
-          summary.write(
-              "\nSeverity uses CodeQL's `security-severity` score "
-              "(Critical ≥ 9, High ≥ 7, Medium ≥ 4, otherwise Low). "
-              "Findings without that score use SARIF level "
-              "(error → High, warning → Medium, note/none → Low).\n"
-          )
 
           if blocking_new:
               sys.exit(1)
