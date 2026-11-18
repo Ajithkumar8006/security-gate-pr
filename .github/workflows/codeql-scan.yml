@@ -18,8 +18,6 @@ jobs:
   analyze:
     name: Analyze Java
     runs-on: ubuntu-latest
-    env:
-      BASELINE_BRANCH: gate-pr
     outputs:
       summary_artifact_id: ${{ steps.upload_pr_summary.outputs.artifact-id }}
     permissions:
@@ -30,7 +28,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch approved baseline from gate-pr for testing
+      - name: Fetch approved baseline from PR target branch
         uses: actions/github-script@v7
         env:
           BASELINE_PATH: ${{ runner.temp }}/java.sarif
@@ -41,11 +39,11 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               path: 'reports/java.sarif',
-              ref: `refs/heads/${process.env.BASELINE_BRANCH}`,
+              ref: context.payload.pull_request.base.sha,
             });
             if (Array.isArray(data) || data.type !== 'file' || data.encoding !== 'base64') {
               throw new Error(
-                `Approved baseline reports/java.sarif was not found on ${process.env.BASELINE_BRANCH}.`
+                'Approved baseline reports/java.sarif was not found on the PR target branch.'
               );
             }
             fs.writeFileSync(
@@ -86,6 +84,7 @@ jobs:
         env:
           SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
           BASELINE_PATH: ${{ runner.temp }}/java.sarif
+          BASELINE_BRANCH: ${{ github.event.pull_request.base.ref }}
           SUMMARY_PATH: ${{ runner.temp }}/codeql-summary.md
         run: |
           python3 - <<'PY'
