@@ -18,6 +18,8 @@ jobs:
   analyze:
     name: Analyze Java
     runs-on: ubuntu-latest
+    env:
+      BASELINE_BRANCH: gate-pr
     outputs:
       summary_artifact_id: ${{ steps.upload_pr_summary.outputs.artifact-id }}
     permissions:
@@ -28,7 +30,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch approved baseline from PR target branch
+      - name: Fetch approved baseline from gate-pr for testing
         uses: actions/github-script@v7
         env:
           BASELINE_PATH: ${{ runner.temp }}/java.sarif
@@ -39,10 +41,12 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               path: 'reports/java.sarif',
-              ref: context.payload.pull_request.base.sha,
+              ref: `refs/heads/${process.env.BASELINE_BRANCH}`,
             });
             if (Array.isArray(data) || data.type !== 'file' || data.encoding !== 'base64') {
-              throw new Error('Approved baseline reports/java.sarif was not found on the PR target branch.');
+              throw new Error(
+                `Approved baseline reports/java.sarif was not found on ${process.env.BASELINE_BRANCH}.`
+              );
             }
             fs.writeFileSync(
               process.env.BASELINE_PATH,
@@ -82,7 +86,6 @@ jobs:
         env:
           SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
           BASELINE_PATH: ${{ runner.temp }}/java.sarif
-          BASELINE_BRANCH: ${{ github.event.pull_request.base.ref }}
           SUMMARY_PATH: ${{ runner.temp }}/codeql-summary.md
         run: |
           python3 - <<'PY'
@@ -309,7 +312,7 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write("## CodeQL SAST Scan Summary\n\n")
               summary.write(
-                  f"Baseline file: `reports/java.sarif` on target branch "
+                  f"Baseline file: `reports/java.sarif` on baseline branch "
                   f"`{os.environ['BASELINE_BRANCH']}` (approved CodeQL SARIF baseline).\n\n"
               )
               summary.write(f"Total findings in filtered results: **{current_total}**\n\n")
