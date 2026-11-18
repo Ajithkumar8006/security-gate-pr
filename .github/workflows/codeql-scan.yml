@@ -1,0 +1,442 @@
+name: CodeQL
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze Java
+    runs-on: ubuntu-latest
+    outputs:
+      summary_artifact_id: ${{ steps.upload_pr_summary.outputs.artifact-id }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch approved baseline from PR target branch
+        uses: actions/github-script@v7
+        env:
+          BASELINE_PATH: ${{ runner.temp }}/java.sarif
+        with:
+          script: |
+            const fs = require('fs');
+            const { data } = await github.rest.repos.getContent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path: 'reports/java.sarif',
+              ref: context.payload.pull_request.base.sha,
+            });
+            if (Array.isArray(data) || data.type !== 'file' || data.encoding !== 'base64') {
+              throw new Error(
+                'Approved baseline reports/java.sarif was not found on the PR target branch.'
+              );
+            }
+            fs.writeFileSync(
+              process.env.BASELINE_PATH,
+              Buffer.from(data.content, 'base64')
+            );
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+          build-mode: autobuild
+
+      - name: Perform CodeQL Analysis
+        id: analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          upload: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'always' || 'never' }}
+
+      - name: Upload SARIF artifact
+        if: ${{ steps.analyze.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif
+          path: ${{ steps.analyze.outputs.sarif-output }}
+          retention-days: 1
+
+      - name: Compare findings with approved baseline
+        id: compare
+        if: ${{ steps.analyze.outcome == 'success' }}
+        env:
+          SARIF_DIR: ${{ steps.analyze.outputs.sarif-output }}
+          BASELINE_PATH: ${{ runner.temp }}/java.sarif
+          BASELINE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          SUMMARY_PATH: ${{ runner.temp }}/codeql-summary.md
+        run: |
+          python3 - <<'PY'
+          import html
+          import hashlib
+          import json
+          import math
+          import os
+          import sys
+          from collections import Counter
+          from pathlib import Path
+
+          SEVERITIES = ("Critical", "High", "Medium", "Low")
+          SEVERITY_MARKERS = {
+              "Critical": "🔴",
+              "High": "🟠",
+              "Medium": "🟡",
+              "Low": "🟢",
+          }
+          LEVEL_FALLBACKS = {
+              "error": "High",
+              "warning": "Medium",
+              "note": "Low",
+              "none": "Low",
+          }
+
+          def load_sarif(path):
+              with path.open(encoding="utf-8") as file:
+                  sarif = json.load(file)
+              if sarif.get("version") != "2.1.0" or not isinstance(sarif.get("runs"), list):
+                  raise ValueError(f"{path} is not a SARIF 2.1.0 file.")
+              return sarif
+
+          def find_rule(result, rules_by_id, rules):
+              rule_id = result.get("ruleId")
+              if rule_id is None:
+                  rule_id = result.get("rule", {}).get("id")
+              if rule_id is not None:
+                  return rule_id, rules_by_id.get(rule_id, {})
+
+              rule_index = result.get("ruleIndex")
+              if isinstance(rule_index, int) and 0 <= rule_index < len(rules):
+                  rule = rules[rule_index]
+                  return rule.get("id"), rule
+              raise ValueError("A SARIF result does not identify its rule.")
+
+          def finding_severity(result, rule):
+              score = result.get("properties", {}).get("security-severity")
+              if score is None:
+                  score = rule.get("properties", {}).get("security-severity")
+              if score is not None:
+                  try:
+                      score = float(score)
+                  except (TypeError, ValueError) as error:
+                      raise ValueError(f"Invalid security-severity score: {score!r}") from error
+                  if not math.isfinite(score) or not 0 <= score <= 10:
+                      raise ValueError(f"Invalid security-severity score: {score!r}")
+                  if score >= 9:
+                      return "Critical"
+                  if score >= 7:
+                      return "High"
+                  if score >= 4:
+                      return "Medium"
+                  return "Low"
+
+              level = result.get("level")
+              if level is None:
+                  level = rule.get("defaultConfiguration", {}).get("level", "none")
+              if not isinstance(level, str) or level.lower() not in LEVEL_FALLBACKS:
+                  raise ValueError(f"Unsupported SARIF severity level: {level!r}")
+              return LEVEL_FALLBACKS[level.lower()]
+
+          def finding_identity(result, rule_id):
+              fingerprints = result.get("partialFingerprints", {})
+              fingerprint = (
+                  fingerprints.get("primaryLocationLineHash")
+                  or fingerprints.get("primaryLocationStartColumnFingerprint")
+              )
+              if fingerprint is not None:
+                  identity = [rule_id, "fingerprint", fingerprint]
+              else:
+                  locations = result.get("locations", [])
+                  if locations:
+                      physical = locations[0].get("physicalLocation", {})
+                      artifact = physical.get("artifactLocation", {})
+                      region = physical.get("region", {})
+                      location = [
+                          artifact.get("uri"),
+                          region.get("startLine"),
+                          region.get("startColumn"),
+                      ]
+                  else:
+                      location = None
+                  identity = [
+                      rule_id,
+                      location,
+                      result.get("message", {}).get("text", ""),
+                  ]
+              encoded = json.dumps(identity, sort_keys=True, ensure_ascii=True).encode("utf-8")
+              return hashlib.sha256(encoded).hexdigest()
+
+          def finding_record(result, rule_id, severity):
+              locations = result.get("locations", [])
+              location = "unknown location"
+              if locations:
+                  physical = locations[0].get("physicalLocation", {})
+                  artifact = physical.get("artifactLocation", {})
+                  region = physical.get("region", {})
+                  location = artifact.get("uri", "unknown file")
+                  if region.get("startLine") is not None:
+                      location += f":{region['startLine']}"
+                      if region.get("startColumn") is not None:
+                          location += f":{region['startColumn']}"
+
+              message = result.get("message", {}).get("text", "")
+              if not message:
+                  message = result.get("message", {}).get("markdown", "")
+              return {
+                  "identity": finding_identity(result, rule_id),
+                  "severity": severity,
+                  "rule": rule_id,
+                  "location": location,
+                  "message": message or "No finding description provided.",
+              }
+
+          def analyze_sarif_files(paths):
+              findings = []
+              for path in paths:
+                  sarif = load_sarif(path)
+                  if not sarif["runs"]:
+                      raise ValueError(f"{path} contains no SARIF runs.")
+                  for run in sarif["runs"]:
+                      tool = run.get("tool", {})
+                      components = [tool.get("driver", {})] + tool.get("extensions", [])
+                      rules = []
+                      rules_by_id = {}
+                      for component in components:
+                          component_rules = component.get("rules", [])
+                          rules.extend(component_rules)
+                          for rule in component_rules:
+                              if rule.get("id") is not None:
+                                  rules_by_id.setdefault(rule["id"], rule)
+                      for result in run.get("results", []):
+                          rule_id, rule = find_rule(result, rules_by_id, rules)
+                          severity = finding_severity(result, rule)
+                          findings.append(finding_record(result, rule_id, severity))
+              return findings
+
+          def format_delta(delta):
+              return f"+{delta}" if delta > 0 else str(delta)
+
+          def severity_counts(findings):
+              counts = Counter(finding["severity"] for finding in findings)
+              return {severity: counts[severity] for severity in SEVERITIES}
+
+          def markdown_cell(value):
+              value = html.escape(str(value), quote=False)
+              return value.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+
+          def write_severity_table(summary, title, counts):
+              summary.write(f"### {title}\n\n")
+              summary.write("| Severity | Count |\n| --- | ---: |\n")
+              for severity in SEVERITIES:
+                  summary.write(
+                      f"| {SEVERITY_MARKERS[severity]} {severity} | "
+                      f"{counts[severity]} |\n"
+                  )
+              summary.write("\n")
+
+          def write_finding_details(summary, title, findings):
+              finding_label = "pre-existing" if title == "Pre-existing Findings" else "new"
+              summary.write(f"### {title}\n\n")
+              summary.write(
+                  f"<details><summary>Click to view all {len(findings)} "
+                  f"{finding_label} finding(s)</summary>\n\n"
+              )
+              if findings:
+                  summary.write("| Severity | Rule | Location | Finding |\n")
+                  summary.write("| --- | --- | --- | --- |\n")
+                  for finding in findings:
+                      summary.write(
+                          f"| {finding['severity']} | "
+                          f"{markdown_cell(finding['rule'])} | "
+                          f"{markdown_cell(finding['location'])} | "
+                          f"{markdown_cell(finding['message'])} |\n"
+                      )
+              else:
+                  summary.write("No findings.\n")
+              summary.write("\n</details>\n\n")
+
+          baseline_path = Path(os.environ["BASELINE_PATH"])
+          current_dir = Path(os.environ["SARIF_DIR"])
+          if not baseline_path.is_file():
+              raise SystemExit(f"Approved SARIF baseline not found: {baseline_path}")
+          current_files = sorted(current_dir.rglob("*.sarif"))
+          if not current_files:
+              raise SystemExit(f"No current SARIF files found in {current_dir}")
+
+          baseline_findings = analyze_sarif_files([baseline_path])
+          current_findings = analyze_sarif_files(current_files)
+
+          baseline_remaining = Counter(
+              finding["identity"] for finding in baseline_findings
+          )
+          preexisting_findings = []
+          new_findings = []
+          for finding in current_findings:
+              if baseline_remaining[finding["identity"]]:
+                  preexisting_findings.append(finding)
+                  baseline_remaining[finding["identity"]] -= 1
+              else:
+                  new_findings.append(finding)
+
+          preexisting_counts = severity_counts(preexisting_findings)
+          new_counts = severity_counts(new_findings)
+          baseline_total = len(baseline_findings)
+          current_total = len(current_findings)
+          resolved_findings = sum(baseline_remaining.values())
+          blocking_new = sum(
+              new_counts[severity] for severity in ("Critical", "High", "Medium")
+          )
+          gate_status = "PASS" if blocking_new == 0 else "FAIL"
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## CodeQL SAST Scan Summary\n\n")
+              summary.write(
+                  f"Baseline file: `reports/java.sarif` on baseline branch "
+                  f"`{os.environ['BASELINE_BRANCH']}` (approved CodeQL SARIF baseline).\n\n"
+              )
+              summary.write(f"Total findings in filtered results: **{current_total}**\n\n")
+              summary.write(f"New findings: **{len(new_findings)}**\n\n")
+              summary.write(
+                  f"Pre-existing findings: **{len(preexisting_findings)}**\n\n"
+              )
+              summary.write(f"Baseline findings: **{baseline_total}**\n\n")
+              summary.write(
+                  f"Total count difference: "
+                  f"**{format_delta(current_total - baseline_total)}**\n\n"
+              )
+              summary.write(f"Resolved baseline findings: **{resolved_findings}**\n\n")
+
+              write_severity_table(
+                  summary, "Pre-existing Findings by Severity", preexisting_counts
+              )
+              write_finding_details(
+                  summary, "Pre-existing Findings", preexisting_findings
+              )
+              write_severity_table(summary, "New Findings by Severity", new_counts)
+              write_finding_details(summary, "New Findings", new_findings)
+
+              summary.write("### New Findings (Gate Evaluation)\n\n")
+              summary.write(f"Security gate: **{gate_status}**\n\n")
+              summary.write(
+                  "Gate policy: New Critical, High, or Medium findings block; "
+                  "Low and Informational findings do not.\n\n"
+              )
+              if blocking_new:
+                  summary.write(
+                      f"Gate result: **{blocking_new}** new Critical, High, or "
+                      "Medium finding(s) violate the policy; the workflow will fail.\n\n"
+                  )
+              elif new_findings:
+                  summary.write(
+                      "Gate result: new findings are Low severity and do not block.\n\n"
+                  )
+              else:
+                  summary.write(
+                      "Gate result: no new findings compared with the approved baseline.\n\n"
+                  )
+              summary.write(
+                  "\nSeverity uses CodeQL's `security-severity` score "
+                  "(Critical ≥ 9, High ≥ 7, Medium ≥ 4, otherwise Low). "
+                  "Findings without that score use SARIF level "
+                  "(error → High, warning → Medium, note/none → Low).\n"
+              )
+
+          Path(os.environ["SUMMARY_PATH"]).write_text(
+              Path(os.environ["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8"),
+              encoding="utf-8",
+          )
+
+          if blocking_new:
+              sys.exit(1)
+          PY
+
+      - name: Upload PR summary for comment
+        id: upload_pr_summary
+        if: ${{ always() && steps.compare.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-pr-summary
+          path: ${{ runner.temp }}/codeql-summary.md
+          retention-days: 1
+          if-no-files-found: error
+
+  publish_pr_summary:
+    name: Publish summary to PR
+    needs: analyze
+    if: ${{ always() && needs.analyze.outputs.summary_artifact_id != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Download PR summary
+        uses: actions/download-artifact@v4
+        with:
+          name: codeql-pr-summary
+          path: ${{ runner.temp }}/codeql-pr-summary
+
+      - name: Create or update PR summary comment
+        uses: actions/github-script@v7
+        env:
+          SUMMARY_PATH: ${{ runner.temp }}/codeql-pr-summary/codeql-summary.md
+        with:
+          script: |
+            const fs = require('fs');
+            const summaryPath = process.env.SUMMARY_PATH;
+            if (!fs.existsSync(summaryPath)) {
+              throw new Error(`PR summary artifact is missing: ${summaryPath}`);
+            }
+
+            const marker = '<!-- codeql-scan-summary -->';
+            const summary = fs.readFileSync(summaryPath, 'utf8');
+            if (!summary.trim()) {
+              throw new Error('PR summary artifact is empty.');
+            }
+            const body = `${marker}\n${summary}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              comment => comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
