@@ -1,6 +1,7 @@
 package com.stockroom;
 
-import java.security.MessageDigest;
+import javax.crypto.Cipher;
+import javax.crypto.NoSuchPaddingException;
 import java.security.NoSuchAlgorithmException;
 
 // Temporary CodeQL gate fixture; remove it after testing and do not merge it.
@@ -8,7 +9,7 @@ final class TemporaryCodeQlGateFixture {
     private TemporaryCodeQlGateFixture() {
     }
 
-    static byte[] weakDigest(byte[] value) throws NoSuchAlgorithmException {
-        return MessageDigest.getInstance("MD5").digest(value);
+    static Cipher weakCipher() throws NoSuchAlgorithmException, NoSuchPaddingException {
+        return Cipher.getInstance("DES");
     }
 }
